@@ -796,7 +796,7 @@
                 user_kicked: "Op Discharged", team_deleted: "Unit Disbanded", left_team: "Withdrawn", left_team_owner: "Command Transferred",
                 select_tournament: "Select Op", adm_send: "SEND", adm_publish: "PUBLISH", adm_send_all: "SEND TO ALL",
                 score: "Score", update_score: "UPDATE SCORE", score_updated: "Score Updated", cs_format: "5v5 (Match)",
-                terrorists: "Terrorists", counter_terrorists: "Counter-Terrorists"
+                terrorists: "Terrorists", counter_terrorists: "Counter-Terrorists", duplicate: "Duplicate compensations"
             },
             ru: {
                 subtitle: "Турнирная Платформа", active_events: "Активные Операции", welcome: "ДОБРО ПОЖАЛОВАТЬ", setup_profile: "Инициализация",
@@ -817,7 +817,7 @@
                 user_kicked: "Исключен", team_deleted: "Отряд удален", left_team: "Вы покинули отряд", left_team_owner: "Права переданы",
                 select_tournament: "Выберите турнир", adm_send: "ОТПРАВИТЬ", adm_publish: "ОПУБЛИКОВАТЬ", adm_send_all: "ОТПРАВИТЬ ВСЕМ",
                 score: "Счёт", update_score: "ОБНОВИТЬ СЧЁТ", score_updated: "Счёт обновлен", cs_format: "5v5 (Матч)",
-                terrorists: "Террористы", counter_terrorists: "Спецназ"
+                terrorists: "Террористы", counter_terrorists: "Спецназ", duplicate: "Компенсация за повторку"
             }
         };
 
@@ -1426,16 +1426,27 @@
             // 5. Cleanup and Result
             setTimeout(async () => {
                 let newInv = dbUser.inventory || [];
-                if (!newInv.includes(winTitle.id)) newInv.push(winTitle.id);
-                await update(ref(db, `users/${user.id}`), { inventory: newInv });
+                let isDuplicate = newInv.includes(winTitle.id);
+                let rewardGems = 0;
 
-                showToast(`${t('you_got')}: ${winTitle.name}`, 'success');
+                if (!isDuplicate) {
+                    newInv.push(winTitle.id);
+                    await update(ref(db, `users/${user.id}`), { inventory: newInv });
+                    showToast(`${t('you_got')}: ${winTitle.name}`, 'success');
+                } else {
+                    const compensation = { common: 2, uncommon: 5, rare: 10, ultra: 20, covert: 40, secret: 100 };
+                    rewardGems = compensation[winTitle.rarity] || 2;
+                    const currentGems = dbUser.gems || 0;
+                    await update(ref(db, `users/${user.id}`), { gems: currentGems + rewardGems });
+                    showToast(`${t('duplicate')}: +${rewardGems} 💎`, 'info');
+                }
 
                 // Show result in modal
                 document.getElementById('modal-content').innerHTML = `
-                    <div class="p-8 text-center animate-bounce">
-                        <div class="text-[10px] opacity-50 uppercase mb-2 font-mono">${winTitle.rarity}</div>
-                        <h2 class="font-tech text-3xl mb-6 rarity-${winTitle.rarity} drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">${winTitle.name}</h2>
+                    <div class="p-8 text-center">
+                        <div class="text-[10px] opacity-50 uppercase mb-2 font-mono">${isDuplicate ? t('duplicate') : winTitle.rarity}</div>
+                        <h2 class="font-tech text-3xl mb-1 rarity-${winTitle.rarity} drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">${winTitle.name}</h2>
+                        ${isDuplicate ? `<p class="text-blue-400 font-mono text-sm mb-6">+${rewardGems} 💎</p>` : `<div class="mb-6"></div>`}
                         <button onclick="closeModal()" class="btn-nexus text-xs">${t('close')}</button>
                     </div>
                 `;
