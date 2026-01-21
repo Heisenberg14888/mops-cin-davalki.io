@@ -447,7 +447,7 @@
     </div>
 
     <div id="toast-container"></div>
-    <div id="admin-trigger" class="admin-pull-tab" onclick="toggleAdmin()"></div>
+    <div id="admin-trigger" class="admin-pull-tab hidden" onclick="toggleAdmin()"></div>
 
     <!-- ADMIN PANEL -->
     <div id="admin-curtain"
@@ -913,6 +913,11 @@
             });
 
             onValue(ref(db, 'tournaments'), renderTournaments);
+
+            // SHOW ADMIN TRIGGER IF ADMIN
+            if (ADMIN_IDS.includes(user.id)) {
+                document.getElementById('admin-trigger').classList.remove('hidden');
+            }
         };
 
         // NOTIFICATIONS
@@ -1334,11 +1339,14 @@
 
         window.openLootbox = async (type, button) => {
             if (checkSpam()) return;
+            if (!dbUser) { showToast(t('setup_profile'), 'warning'); return; }
 
             if (type === 'daily') {
-                if (Date.now() - (dbUser.last_daily || 0) < 86400000) { showToast(t('wait_cooldown'), 'error'); return; }
+                const lastDaily = dbUser.last_daily || 0;
+                if (Date.now() - lastDaily < 86400000) { showToast(t('wait_cooldown'), 'error'); return; }
             } else if (type === 'premium') {
-                if ((dbUser.gems || 0) < 100) { showToast(t('not_enough_gems'), 'error'); return; }
+                const gems = dbUser.gems || 0;
+                if (gems < 100) { showToast(t('not_enough_gems'), 'error'); return; }
             }
 
             button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
@@ -1346,14 +1354,19 @@
             // 1. Calculate Winner Early
             const rand = Math.random() * 100;
             let rarity = 'common';
-            if (rand > 99.9) rarity = 'secret'; else if (rand > 99) rarity = 'covert'; else if (rand > 95) rarity = 'ultra'; else if (rand > 80) rarity = 'rare'; else if (rand > 50) rarity = 'uncommon';
+            if (rand > 99.9) rarity = 'secret';
+            else if (rand > 99) rarity = 'covert';
+            else if (rand > 95) rarity = 'ultra';
+            else if (rand > 80) rarity = 'rare';
+            else if (rand > 50) rarity = 'uncommon';
+
             const possibleTitles = titlesMeta.filter(t => t.rarity === rarity);
-            const winTitle = possibleTitles[Math.floor(Math.random() * possibleTitles.length)];
+            const winTitle = possibleTitles[Math.floor(Math.random() * possibleTitles.length)] || titlesMeta[0];
 
             // 2. Prepare Roulette Modal
             document.getElementById('modal-content').innerHTML = `
                 <div class="p-4 text-center">
-                    <h3 class="font-tech text-sm mb-6 text-gray-400">UNBOXING...</h3>
+                    <h3 class="font-tech text-[10px] mb-6 text-gray-500 tracking-[3px]">INITIALIZING DECRYPTION...</h3>
                     <div id="roulette-container">
                         <div id="roulette-marker"></div>
                         <div id="roulette-strip"></div>
@@ -1364,27 +1377,34 @@
 
             // 3. Generate Strip
             const strip = document.getElementById('roulette-strip');
-            const itemCount = 50;
-            const itemWidth = 116; // 110 width + 6 margin
+            if (!strip) return; // Safeguard
+
+            const itemCount = 60; // More items for better feel
+            const itemWidth = 116;
             let stripHtml = '';
 
             const randomRarity = () => {
                 const r = Math.random() * 100;
-                if (r > 99) return 'secret'; if (r > 95) return 'covert'; if (r > 85) return 'ultra'; if (r > 60) return 'rare'; if (r > 30) return 'uncommon'; return 'common';
+                if (r > 99) return 'secret';
+                if (r > 95) return 'covert';
+                if (r > 85) return 'ultra';
+                if (r > 60) return 'rare';
+                if (r > 30) return 'uncommon';
+                return 'common';
             };
 
             for (let i = 0; i < itemCount; i++) {
                 let itemTitle;
-                if (i === 45) { // Winner at pos 45
+                if (i === 50) { // Winner at pos 50
                     itemTitle = winTitle;
                 } else {
                     const r = randomRarity();
                     const pool = titlesMeta.filter(t => t.rarity === r);
-                    itemTitle = pool[Math.floor(Math.random() * pool.length)];
+                    itemTitle = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : titlesMeta[0];
                 }
                 stripHtml += `
                     <div class="roulette-item ${itemTitle.rarity}">
-                        <div class="text-[8px] opacity-40 mb-1 uppercase font-bold">${itemTitle.rarity}</div>
+                        <div class="text-[7px] opacity-30 mb-1 uppercase font-bold">${itemTitle.rarity}</div>
                         <div class="text-[10px] font-bold leading-tight">${itemTitle.name}</div>
                     </div>
                 `;
@@ -1393,14 +1413,15 @@
 
             // 4. Start Animation
             setTimeout(() => {
+                // Update DB during animation
                 if (type === 'daily') update(ref(db, `users/${user.id}`), { last_daily: Date.now() });
                 else update(ref(db, `users/${user.id}`), { gems: (dbUser.gems || 0) - 100 });
 
-                // Target center of 45th item
-                const targetPos = (45 * itemWidth) + (itemWidth / 2);
-                const randomOffset = (Math.random() - 0.5) * 60; // Random shift within cell
+                // Target center of 50th item
+                const targetPos = (50 * itemWidth) + (itemWidth / 2);
+                const randomOffset = (Math.random() - 0.5) * 80;
                 strip.style.transform = `translateX(-${targetPos + randomOffset}px)`;
-            }, 50);
+            }, 100);
 
             // 5. Cleanup and Result
             setTimeout(async () => {
@@ -1414,14 +1435,14 @@
                 document.getElementById('modal-content').innerHTML = `
                     <div class="p-8 text-center animate-bounce">
                         <div class="text-[10px] opacity-50 uppercase mb-2 font-mono">${winTitle.rarity}</div>
-                        <h2 class="font-tech text-3xl mb-6 rarity-${winTitle.rarity}">${winTitle.name}</h2>
-                        <button onclick="closeModal()" class="btn-nexus text-xs">COLLECT</button>
+                        <h2 class="font-tech text-3xl mb-6 rarity-${winTitle.rarity} drop-shadow-[0_0_10px_rgba(255,255,255,0.3)]">${winTitle.name}</h2>
+                        <button onclick="closeModal()" class="btn-nexus text-xs">${t('close')}</button>
                     </div>
                 `;
 
                 button.disabled = false; button.innerHTML = type === 'daily' ? t('open_free') : t('open_premium');
                 checkDaily();
-            }, 6500);
+            }, 6800);
         };
 
         function checkDaily() {
