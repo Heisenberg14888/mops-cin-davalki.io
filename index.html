@@ -348,6 +348,93 @@
             align-items: center;
             gap: 10px;
         }
+
+        /* Roulette Styles */
+        #roulette-container {
+            position: relative;
+            width: 100%;
+            height: 130px;
+            background: #050505;
+            border: 2px solid #1a1a1a;
+            overflow: hidden;
+            border-radius: 12px;
+        }
+
+        #roulette-strip {
+            display: flex;
+            position: absolute;
+            left: 0;
+            top: 0;
+            transition: transform 6s cubic-bezier(0.1, 0, 0, 1);
+            will-change: transform;
+            height: 100%;
+            align-items: center;
+            padding-left: 50%;
+        }
+
+        .roulette-item {
+            min-width: 110px;
+            height: 100px;
+            margin-right: 6px;
+            background: #0a0a0a;
+            border: 1px solid #222;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 10px;
+            flex-shrink: 0;
+            position: relative;
+        }
+
+        .roulette-item::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            border-radius: 0 0 10px 10px;
+        }
+
+        .roulette-item.common::after {
+            background: var(--c-common);
+        }
+
+        .roulette-item.uncommon::after {
+            background: var(--c-uncommon);
+        }
+
+        .roulette-item.rare::after {
+            background: var(--c-rare);
+        }
+
+        .roulette-item.ultra::after {
+            background: var(--c-ultra);
+        }
+
+        .roulette-item.covert::after {
+            background: var(--c-covert);
+        }
+
+        .roulette-item.secret::after {
+            background: var(--c-secret);
+        }
+
+        #roulette-marker {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: #fff;
+            z-index: 10;
+            transform: translateX(-50%);
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
+            border-radius: 10px;
+        }
     </style>
 </head>
 
@@ -1247,23 +1334,94 @@
 
         window.openLootbox = async (type, button) => {
             if (checkSpam()) return;
+
+            if (type === 'daily') {
+                if (Date.now() - (dbUser.last_daily || 0) < 86400000) { showToast(t('wait_cooldown'), 'error'); return; }
+            } else if (type === 'premium') {
+                if ((dbUser.gems || 0) < 100) { showToast(t('not_enough_gems'), 'error'); return; }
+            }
+
             button.disabled = true; button.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
-            if (type === 'daily') { if (Date.now() - (dbUser.last_daily || 0) < 86400000) { showToast(t('wait_cooldown'), 'error'); button.disabled = false; button.innerHTML = t('open_free'); return; } await update(ref(db, `users/${user.id}`), { last_daily: Date.now() }); }
-            else if (type === 'premium') { if ((dbUser.gems || 0) < 100) { showToast(t('not_enough_gems'), 'error'); button.disabled = false; button.innerHTML = t('open_premium'); return; } await update(ref(db, `users/${user.id}`), { gems: (dbUser.gems || 0) - 100 }); }
+            // 1. Calculate Winner Early
+            const rand = Math.random() * 100;
+            let rarity = 'common';
+            if (rand > 99.9) rarity = 'secret'; else if (rand > 99) rarity = 'covert'; else if (rand > 95) rarity = 'ultra'; else if (rand > 80) rarity = 'rare'; else if (rand > 50) rarity = 'uncommon';
+            const possibleTitles = titlesMeta.filter(t => t.rarity === rarity);
+            const winTitle = possibleTitles[Math.floor(Math.random() * possibleTitles.length)];
 
+            // 2. Prepare Roulette Modal
+            document.getElementById('modal-content').innerHTML = `
+                <div class="p-4 text-center">
+                    <h3 class="font-tech text-sm mb-6 text-gray-400">UNBOXING...</h3>
+                    <div id="roulette-container">
+                        <div id="roulette-marker"></div>
+                        <div id="roulette-strip"></div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('modal-overlay').classList.remove('hidden');
+
+            // 3. Generate Strip
+            const strip = document.getElementById('roulette-strip');
+            const itemCount = 50;
+            const itemWidth = 116; // 110 width + 6 margin
+            let stripHtml = '';
+
+            const randomRarity = () => {
+                const r = Math.random() * 100;
+                if (r > 99) return 'secret'; if (r > 95) return 'covert'; if (r > 85) return 'ultra'; if (r > 60) return 'rare'; if (r > 30) return 'uncommon'; return 'common';
+            };
+
+            for (let i = 0; i < itemCount; i++) {
+                let itemTitle;
+                if (i === 45) { // Winner at pos 45
+                    itemTitle = winTitle;
+                } else {
+                    const r = randomRarity();
+                    const pool = titlesMeta.filter(t => t.rarity === r);
+                    itemTitle = pool[Math.floor(Math.random() * pool.length)];
+                }
+                stripHtml += `
+                    <div class="roulette-item ${itemTitle.rarity}">
+                        <div class="text-[8px] opacity-40 mb-1 uppercase font-bold">${itemTitle.rarity}</div>
+                        <div class="text-[10px] font-bold leading-tight">${itemTitle.name}</div>
+                    </div>
+                `;
+            }
+            strip.innerHTML = stripHtml;
+
+            // 4. Start Animation
+            setTimeout(() => {
+                if (type === 'daily') update(ref(db, `users/${user.id}`), { last_daily: Date.now() });
+                else update(ref(db, `users/${user.id}`), { gems: (dbUser.gems || 0) - 100 });
+
+                // Target center of 45th item
+                const targetPos = (45 * itemWidth) + (itemWidth / 2);
+                const randomOffset = (Math.random() - 0.5) * 60; // Random shift within cell
+                strip.style.transform = `translateX(-${targetPos + randomOffset}px)`;
+            }, 50);
+
+            // 5. Cleanup and Result
             setTimeout(async () => {
-                const rand = Math.random() * 100;
-                let rarity = 'common';
-                if (rand > 99.9) rarity = 'secret'; else if (rand > 99) rarity = 'covert'; else if (rand > 95) rarity = 'ultra'; else if (rand > 80) rarity = 'rare'; else if (rand > 50) rarity = 'uncommon';
-                const winTitle = titlesMeta.filter(t => t.rarity === rarity)[Math.floor(Math.random() * titlesMeta.filter(t => t.rarity === rarity).length)];
                 let newInv = dbUser.inventory || [];
                 if (!newInv.includes(winTitle.id)) newInv.push(winTitle.id);
                 await update(ref(db, `users/${user.id}`), { inventory: newInv });
-                showToast(`${t('you_got')}: ${winTitle.name} (${rarity.toUpperCase()})`, 'success');
+
+                showToast(`${t('you_got')}: ${winTitle.name}`, 'success');
+
+                // Show result in modal
+                document.getElementById('modal-content').innerHTML = `
+                    <div class="p-8 text-center animate-bounce">
+                        <div class="text-[10px] opacity-50 uppercase mb-2 font-mono">${winTitle.rarity}</div>
+                        <h2 class="font-tech text-3xl mb-6 rarity-${winTitle.rarity}">${winTitle.name}</h2>
+                        <button onclick="closeModal()" class="btn-nexus text-xs">COLLECT</button>
+                    </div>
+                `;
+
                 button.disabled = false; button.innerHTML = type === 'daily' ? t('open_free') : t('open_premium');
                 checkDaily();
-            }, 1000);
+            }, 6500);
         };
 
         function checkDaily() {
